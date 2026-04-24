@@ -32,17 +32,27 @@ module. Works from WSL and from native Windows.
    on the permission prompt during this window, so the title stays
    stable until you answer — and the focus handler can use it to pick
    the exact tab.
-7. The toast XML has
+7. Before building the toast, the PowerShell snippet checks whether the
+   foreground window is already the Windows Terminal tab we'd be pointing
+   at. It does this via `GetForegroundWindow()` + UIA: if the foreground
+   window has class `CASCADIA_HOSTING_WINDOW_CLASS` and its selected
+   `TabItem` name matches our sentinel, the snippet exits without
+   toasting. Rationale: if you're already looking at the tab, a
+   notification is noise.
+8. The toast XML has
    `launch="askclaude:focus?session=<WT_SESSION>&title=<encoded-title>"` +
    `activationType="protocol"`. Clicking the toast body routes that URI
    to our registered `askclaude:` scheme, whose handler is
    `focus-terminal.ps1`. The handler uses **UI Automation** to walk every
    Windows Terminal window, find the `TabItem` whose name matches the
    sentinel, and select it via `SelectionItemPattern.Select()` — then
-   bring the parent window to the foreground via `SetForegroundWindow`.
-   If no matching tab is found (e.g. title was overwritten by another
-   app), it falls back to focusing any WT window.
-8. Windows shows a real toast in the Action Center, attributed to
+   bring the parent window to the foreground via `SetForegroundWindow`
+   **and** explicitly `SetFocus()` the visible `TermControl` inside the
+   tab so keyboard input goes straight to the terminal pane (you can
+   type / press Enter without a click). If no matching tab is found
+   (e.g. title was overwritten by another app), it falls back to
+   focusing any WT window.
+9. Windows shows a real toast in the Action Center, attributed to
    **Claude Code** via the registered AUMID.
 
 The Node script is fire-and-forget (`detached` + `unref`) so the hook returns

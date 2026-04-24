@@ -50,6 +50,36 @@ process.stdin.on('end', () => {
   const ps = `
 $ErrorActionPreference = 'Stop'
 Import-Module BurntToast -ErrorAction Stop
+
+# If the Windows Terminal tab that triggered this notification is already the
+# foreground window, the user is staring at it and doesn't need a toast. Check
+# via UIA before spending the cycles to build and fire one.
+$targetTitle = ${psString(tabTitle)}
+if ($targetTitle) {
+    try {
+        Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes -ErrorAction Stop
+        Add-Type -Name AskNotifyU -Namespace AskNotify -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
+'@ -ErrorAction SilentlyContinue
+        $fgHwnd = [AskNotify.AskNotifyU]::GetForegroundWindow()
+        if ($fgHwnd -ne [IntPtr]::Zero) {
+            $fgEl = [System.Windows.Automation.AutomationElement]::FromHandle($fgHwnd)
+            if ($fgEl -and $fgEl.Current.ClassName -eq 'CASCADIA_HOSTING_WINDOW_CLASS') {
+                $tabCond = New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::TabItem)
+                $tabs = $fgEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, $tabCond)
+                foreach ($t in $tabs) {
+                    try {
+                        $sip = $t.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+                        if ($sip.Current.IsSelected -and $t.Current.Name -eq $targetTitle) { exit 0 }
+                    } catch {}
+                }
+            }
+        }
+    } catch {}
+}
+
 $texts = @(${textArray})
 $textXml = ''
 foreach ($t in $texts) { $textXml += "<text>$([System.Security.SecurityElement]::Escape($t))</text>" }

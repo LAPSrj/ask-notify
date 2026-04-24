@@ -31,6 +31,38 @@ function Focus-Hwnd($hwnd) {
     [void][U]::SetForegroundWindow($h)
 }
 
+# Selecting a tab via UIA moves the selected-state but leaves keyboard focus on
+# the tab header. To let the user type / press Enter immediately we explicitly
+# SetFocus on the terminal pane. Prefer TermControl (WT's terminal widget); fall
+# back to the first visible, keyboard-focusable, non-TabItem descendant.
+function Focus-TabContent($window) {
+    $auto = [System.Windows.Automation.AutomationElement]
+    $termCond = New-Object System.Windows.Automation.PropertyCondition(
+        $auto::ClassNameProperty, 'TermControl')
+    try { $terms = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $termCond) } catch { $terms = $null }
+    if ($terms) {
+        foreach ($t in $terms) {
+            $isOff = $true
+            try { $isOff = $t.Current.IsOffscreen } catch {}
+            if (-not $isOff) {
+                try { $t.SetFocus(); return } catch {}
+            }
+        }
+    }
+    $focusCond = New-Object System.Windows.Automation.AndCondition(
+        (New-Object System.Windows.Automation.PropertyCondition($auto::IsKeyboardFocusableProperty, $true)),
+        (New-Object System.Windows.Automation.PropertyCondition($auto::IsOffscreenProperty, $false))
+    )
+    try { $els = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $focusCond) } catch { return }
+    foreach ($e in $els) {
+        $ct = $null
+        try { $ct = $e.Current.ControlType } catch { continue }
+        if ($ct -ne [System.Windows.Automation.ControlType]::TabItem) {
+            try { $e.SetFocus(); return } catch {}
+        }
+    }
+}
+
 function Try-FocusTabByTitle($title) {
     if (-not $title) { return $false }
     $auto = [System.Windows.Automation.AutomationElement]
@@ -61,8 +93,9 @@ function Try-FocusTabByTitle($title) {
                         $ip.Invoke()
                     } catch {}
                 }
-                # Focus window
+                # Focus window, then move keyboard focus to the pane
                 Focus-Hwnd $window.Current.NativeWindowHandle
+                Focus-TabContent $window
                 return $true
             }
         }
