@@ -1,0 +1,40 @@
+{
+  "name": "ask-notify",
+  "version": "0.1.0",
+  "description": "Native Windows toast notifications for Claude Code approval prompts. Click the toast to jump straight to the Windows Terminal tab that needs your input. Works from WSL and from native Windows.",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "windows",
+    "wsl",
+    "notifications",
+    "toast",
+    "burnttoast",
+    "hooks"
+  ],
+  "license": "MIT",
+  "author": "Leandro Morim",
+  "engines": {
+    "node": ">=14"
+  },
+  "os": [
+    "win32",
+    "linux"
+  ],
+  "scripts": {
+    "test-toast": "echo '{\"message\":\"test from ask-notify\",\"cwd\":\"'\"$PWD\"'\"}' | node notify.js"
+  },
+  "files": [
+    "notify.js",
+    "install-hook.js",
+    "install.ps1",
+    "install.cmd",
+    "install.sh",
+    "focus-terminal.ps1",
+    "focus-terminal.vbs",
+    "logo.png",
+    "logo.ico",
+    "LICENSE",
+    "README.md"
+  ]
+}
