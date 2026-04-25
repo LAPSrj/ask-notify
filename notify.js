@@ -10,13 +10,18 @@ process.stdin.on('end', () => {
   let payload = {};
   try { payload = JSON.parse(raw); } catch { /* fall through with defaults */ }
 
-  const message = payload.message || '';
+  const rawMessage = payload.message || '';
 
   // Claude Code's Notification hook fires for both permission prompts AND the
   // idle-waiting-for-input timeout. We only want approval prompts, so drop the
   // idle message.
-  if (/waiting for your input/i.test(message)) return;
-  if (!message) return;
+  if (/waiting for your input/i.test(rawMessage)) return;
+  if (!rawMessage) return;
+
+  // Strip the trailing "use <Tool>" so the tool detail line isn't redundant
+  // with the message. Side effect: PushNotify (which has no tool to name)
+  // surfaces its raw message unchanged.
+  const message = rawMessage.replace(/\s+to use\s+\S+\s*$/i, '');
 
   const cwd = payload.cwd || '';
   const project = cwd ? path.basename(cwd) : '';
