@@ -11,6 +11,12 @@ can't display files), the file either opens immediately — if you're looking
 at that session's Windows Terminal tab — or arrives as a toast you can click
 to open. See [File deliveries](#file-deliveries-sendUserfile) below.
 
+And **questions**: when Claude asks you something via its `AskUserQuestion`
+tool (multiple-choice prompts), a toast shows the question and its options —
+unless you're already looking at the session's tab. Clicking the toast
+focuses the terminal so you can answer. Wired as a `PreToolUse` hook on the
+`AskUserQuestion` matcher, reusing `notify.js`.
+
 ## How it works
 
 1. Claude Code emits a `Notification` hook event whenever it needs the user's
@@ -145,8 +151,9 @@ Both wrappers do the same thing:
      Code** instead of **Windows PowerShell**.
    - Fires a confirmation toast so you can see the branding in place.
 2. Run `install-hook.js`, which idempotently adds the `Notification` hook
-   (approval toasts) and the `PostToolUse`/`SendUserFile` hook (file
-   deliveries) to Claude Code's `settings.json` — `~/.claude/settings.json`
+   (approval toasts), the `PostToolUse`/`SendUserFile` hook (file
+   deliveries), and the `PreToolUse`/`AskUserQuestion` hook (question
+   toasts) to Claude Code's `settings.json` — `~/.claude/settings.json`
    on WSL/Linux/macOS, `%USERPROFILE%\.claude\settings.json` on native
    Windows. Node's `os.homedir()` picks the right location automatically.
    If `settings.json` already exists it is backed up to
@@ -293,7 +300,8 @@ That's a Windows notification setting. **Settings → System → Notifications �
 
 ## Files
 
-- `notify.js` — the Notification hook script (approval toasts)
+- `notify.js` — approval toasts (Notification hook) and question toasts
+  (PreToolUse hook on AskUserQuestion)
 - `open-file.js` — the PostToolUse hook script (SendUserFile deliveries:
   auto-open when the session's tab is focused, click-to-open toast otherwise)
 - `logo.png` / `logo.ico` — logo assets shipped with the package

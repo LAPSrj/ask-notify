@@ -1,34 +1,76 @@
 #!/usr/bin/env node
-const { spawn } = require('child_process');
+// Fires a Windows toast when Claude Code needs the user's attention. Wired to
+// two hook events (install-hook.js sets both up):
+//   - Notification            → permission/approval prompts
+//   - PreToolUse, matcher AskUserQuestion → Claude is asking a question
+//
+// Manual testing:
+//   node notify.js payload.json           # read payload from a file instead of stdin
+//   node notify.js payload.json --debug   # run PowerShell synchronously, print its output
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-let raw = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (chunk) => { raw += chunk; });
-process.stdin.on('end', () => {
+const cliArgs = process.argv.slice(2);
+const debug = cliArgs.includes('--debug');
+const payloadFile = cliArgs.find((a) => !a.startsWith('--'));
+
+if (payloadFile) {
+  let fileRaw = '';
+  try { fileRaw = fs.readFileSync(payloadFile, 'utf8'); } catch { /* run with empty payload */ }
+  run(fileRaw);
+} else {
+  let raw = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk) => { raw += chunk; });
+  process.stdin.on('end', () => run(raw));
+}
+
+function run(raw) {
   let payload = {};
   try { payload = JSON.parse(raw); } catch { /* fall through with defaults */ }
 
-  const rawMessage = payload.message || '';
-
-  // Claude Code's Notification hook fires for both permission prompts AND the
-  // idle-waiting-for-input timeout. We only want approval prompts, so drop the
-  // idle message.
-  if (/waiting for your input/i.test(rawMessage)) return;
-  if (!rawMessage) return;
-
-  // Strip the trailing "use <Tool>" so the tool detail line isn't redundant
-  // with the message. Side effect: PushNotify (which has no tool to name)
-  // surfaces its raw message unchanged.
-  const message = rawMessage.replace(/\s+to use\s+\S+\s*$/i, '');
-
   const cwd = payload.cwd || '';
   const project = cwd ? path.basename(cwd) : '';
-  const title = project || 'Approval needed';
 
-  const toolUse = readPendingToolUse(payload.transcript_path);
-  const detail = summarizeToolUse(toolUse);
+  let title;
+  let message;
+  let detail;
+
+  if (payload.tool_name === 'AskUserQuestion') {
+    // PreToolUse payload: Claude is about to show a question prompt. The
+    // question text comes straight from tool_input — no transcript tail needed.
+    const questions = (payload.tool_input && payload.tool_input.questions) || [];
+    message = questions.map((q) => q && q.question).filter(Boolean).join(' ');
+    if (!message) return;
+    message = truncate(message, 200);
+
+    // Options summary, e.g. "Yes, it opened / No, nothing opened"
+    detail = questions
+      .map((q) => ((q && q.options) || []).map((o) => o && o.label).filter(Boolean).join(' / '))
+      .filter(Boolean)
+      .join(' • ');
+    detail = truncate(detail, 120);
+
+    title = project ? `${project} · Claude has a question` : 'Claude has a question';
+  } else {
+    const rawMessage = payload.message || '';
+
+    // Claude Code's Notification hook fires for both permission prompts AND the
+    // idle-waiting-for-input timeout. We only want approval prompts, so drop the
+    // idle message.
+    if (/waiting for your input/i.test(rawMessage)) return;
+    if (!rawMessage) return;
+
+    // Strip the trailing "use <Tool>" so the tool detail line isn't redundant
+    // with the message. Side effect: PushNotify (which has no tool to name)
+    // surfaces its raw message unchanged.
+    message = rawMessage.replace(/\s+to use\s+\S+\s*$/i, '');
+
+    const toolUse = readPendingToolUse(payload.transcript_path);
+    detail = summarizeToolUse(toolUse);
+    title = project || 'Approval needed';
+  }
 
   const children = [title, message];
   if (detail) children.push(detail);
@@ -97,16 +139,31 @@ $toast = New-Object Windows.UI.Notifications.ToastNotification $xmlDoc
 `;
 
   const encoded = Buffer.from(ps, 'utf16le').toString('base64');
+
+  if (debug) {
+    // Synchronous run with visible output, for manual testing/troubleshooting.
+    const r = spawnSync('powershell.exe', ['-NoProfile', '-EncodedCommand', encoded], { encoding: 'utf8' });
+    if (r.stdout) process.stdout.write(r.stdout);
+    if (r.stderr) process.stderr.write(r.stderr);
+    console.log(`exit=${r.status}`);
+    process.exit(0);
+  }
+
   const child = spawn('powershell.exe', ['-NoProfile', '-EncodedCommand', encoded], {
     stdio: 'ignore',
     detached: true,
   });
   child.on('error', () => process.exit(0));
   child.unref();
-});
+}
 
 function psString(s) {
   return "'" + String(s).replace(/'/g, "''") + "'";
+}
+
+function truncate(s, max) {
+  s = String(s).replace(/\s+/g, ' ').trim();
+  return s.length > max ? s.slice(0, max - 1) + '…' : s;
 }
 
 // Write an OSC 0 escape to the controlling TTY to set the terminal's tab

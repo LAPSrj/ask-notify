@@ -63,6 +63,19 @@ if (hasHook(settings.hooks.PostToolUse, 'open-file.js')) {
   changed = true;
 }
 
+// 3. PreToolUse hook → toast when Claude asks a question (notify.js, AskUserQuestion matcher)
+settings.hooks.PreToolUse = settings.hooks.PreToolUse || [];
+if (hasHook(settings.hooks.PreToolUse, 'notify.js')) {
+  console.log(`PreToolUse hook (notify.js) already present in ${SETTINGS_PATH} — leaving as-is.`);
+} else {
+  settings.hooks.PreToolUse.push({
+    matcher: 'AskUserQuestion',
+    hooks: [{ type: 'command', command: NOTIFY_COMMAND }],
+  });
+  console.log(`Adding PreToolUse hook (AskUserQuestion): ${NOTIFY_COMMAND}`);
+  changed = true;
+}
+
 if (!changed) {
   process.exit(0);
 }
