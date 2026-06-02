@@ -5,6 +5,12 @@ approve or deny a tool call. Uses Claude Code's `Notification` hook to fire
 a toast via the [BurntToast](https://github.com/Windos/BurntToast) PowerShell
 module. Works from WSL and from native Windows.
 
+Also handles **file deliveries**: when Claude sends you a file via its
+`SendUserFile` tool (used by remote/Remote-Control sessions, where the CLI
+can't display files), the file either opens immediately — if you're looking
+at that session's Windows Terminal tab — or arrives as a toast you can click
+to open. See [File deliveries](#file-deliveries-sendUserfile) below.
+
 ## How it works
 
 1. Claude Code emits a `Notification` hook event whenever it needs the user's
@@ -61,6 +67,38 @@ instantly and never blocks Claude.
 If you'd rather also be notified on idle, remove the `waiting for your input`
 check at the top of `notify.js`.
 
+## File deliveries (SendUserFile)
+
+Claude Code has a `SendUserFile` tool that "sends" files to the user — it's
+only enabled on sessions with a remote connection (Remote Control /
+claude.ai), where the file shows up in the chat UI. The local CLI has no way
+to display those files, so `open-file.js` (a `PostToolUse` hook on the
+`SendUserFile` matcher) bridges the gap:
+
+1. The hook stamps the session's Windows Terminal tab title with the same
+   sentinel `notify.js` uses, then asks UIA whether that tab is the
+   foreground window.
+2. **If it is** — you're watching the session — every sent file opens
+   immediately with its default Windows app (`Invoke-Item`, falling back to
+   `explorer.exe`).
+3. **If it isn't** — you're in another window, or away — a toast shows the
+   project, the file caption Claude wrote, and the file names. Clicking the
+   toast opens the file(s) via the `askclaude:openfile` protocol action,
+   which `focus-terminal.ps1` handles alongside the existing `focus` action.
+
+File paths are converted with `wslpath -w` (WSL) so Windows can open them as
+`\\wsl.localhost\...` UNC paths. Paths are passed URL-encoded and
+pipe-separated in the toast's launch URI; very long path lists fall back to a
+temp list file.
+
+Manual testing:
+
+```bash
+# payload.json mimics the hook stdin (see header comment in open-file.js)
+node open-file.js payload.json --force-open    # open directly, skip focus check
+node open-file.js payload.json --force-toast   # always toast, skip focus check
+```
+
 ## Prerequisites
 
 - Windows 10 or 11 — **BurntToast is Windows-only**, since it wraps the
@@ -107,12 +145,13 @@ Both wrappers do the same thing:
      Code** instead of **Windows PowerShell**.
    - Fires a confirmation toast so you can see the branding in place.
 2. Run `install-hook.js`, which idempotently adds the `Notification` hook
-   entry to Claude Code's `settings.json` — `~/.claude/settings.json` on
-   WSL/Linux/macOS, `%USERPROFILE%\.claude\settings.json` on native
+   (approval toasts) and the `PostToolUse`/`SendUserFile` hook (file
+   deliveries) to Claude Code's `settings.json` — `~/.claude/settings.json`
+   on WSL/Linux/macOS, `%USERPROFILE%\.claude\settings.json` on native
    Windows. Node's `os.homedir()` picks the right location automatically.
    If `settings.json` already exists it is backed up to
    `settings.json.bak` before being rewritten. Re-running is safe — the
-   script detects an existing entry and leaves the file alone.
+   script detects existing entries and leaves them alone.
 
 Restart any running Claude Code sessions afterwards so the new hook is
 picked up.
@@ -254,10 +293,13 @@ That's a Windows notification setting. **Settings → System → Notifications �
 
 ## Files
 
-- `notify.js` — the hook script Claude Code invokes
+- `notify.js` — the Notification hook script (approval toasts)
+- `open-file.js` — the PostToolUse hook script (SendUserFile deliveries:
+  auto-open when the session's tab is focused, click-to-open toast otherwise)
 - `logo.png` / `logo.ico` — logo assets shipped with the package
-- `focus-terminal.ps1` — click-toast handler; focuses the right Windows
-  Terminal tab via UI Automation
+- `focus-terminal.ps1` — `askclaude:` protocol handler; routes `focus`
+  (select + focus the right Windows Terminal tab via UI Automation) and
+  `openfile` (open delivered files with their default app)
 - `focus-terminal.vbs` — tiny WScript wrapper that runs `focus-terminal.ps1`
   with no visible window (avoids the PowerShell console flash on click)
 - `install.ps1` — installs BurntToast, copies the assets, registers the

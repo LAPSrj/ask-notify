@@ -15,5 +15,5 @@ echo "Running $PS1_PATH on the Windows side..."
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WIN_PATH"
 
 echo
-echo "Wiring the Notification hook into ~/.claude/settings.json..."
+echo "Wiring the Claude Code hooks into ~/.claude/settings.json..."
 node "$SCRIPT_DIR/install-hook.js"

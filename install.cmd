@@ -20,7 +20,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%install.ps1
 if errorlevel 1 exit /b %errorlevel%
 
 echo.
-echo Wiring the Notification hook into %%USERPROFILE%%\.claude\settings.json...
+echo Wiring the Claude Code hooks into %%USERPROFILE%%\.claude\settings.json...
 node "%SCRIPT_DIR%install-hook.js"
 if errorlevel 1 exit /b %errorlevel%
 

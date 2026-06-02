@@ -1,7 +1,7 @@
 {
   "name": "ask-notify",
-  "version": "0.1.0",
-  "description": "Native Windows toast notifications for Claude Code approval prompts. Click the toast to jump straight to the Windows Terminal tab that needs your input. Works from WSL and from native Windows.",
+  "version": "0.2.0",
+  "description": "Native Windows toast notifications for Claude Code approval prompts and file deliveries. Click an approval toast to jump to the Windows Terminal tab that needs your input; files sent via SendUserFile auto-open when you're looking at the session, or arrive as a click-to-open toast when you're not. Works from WSL and from native Windows.",
   "keywords": [
     "claude",
     "claude-code",
@@ -26,6 +26,7 @@
   },
   "files": [
     "notify.js",
+    "open-file.js",
     "install-hook.js",
     "install.ps1",
     "install.cmd",

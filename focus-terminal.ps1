@@ -1,17 +1,46 @@
 param([string]$UriArg = '')
 
-# Parse 'title' and 'session' query params out of the URI. Whole URI looks like
-#   askclaude:focus?session=<GUID>&title=<url-encoded-title>
-$target = @{ title = $null; session = $null }
+# Route by URI action. Whole URI looks like
+#   askclaude:<action>?<query>
+# Actions:
+#   focus    — select + focus the Windows Terminal tab named in 'title'
+#              (askclaude:focus?session=<GUID>&title=<url-encoded-title>)
+#   openfile — open file(s) with their default Windows app
+#              (askclaude:openfile?paths=<url-encoded-path>|<url-encoded-path>
+#               or askclaude:openfile?list=<url-encoded-path-to-list-file>)
+$action = 'focus'
+if ($UriArg -match '^[A-Za-z]+:([^?]+)') { $action = $matches[1].ToLower() }
+
+# Parse query params generically.
+$params = @{}
 if ($UriArg -match '\?(.+)$') {
     foreach ($pair in ($matches[1] -split '&')) {
         if ($pair -match '^([^=]+)=(.*)$') {
-            $k = $matches[1]
-            $v = [System.Uri]::UnescapeDataString($matches[2])
-            if ($target.ContainsKey($k)) { $target[$k] = $v }
+            $params[$matches[1]] = [System.Uri]::UnescapeDataString($matches[2])
         }
     }
 }
+
+if ($action -eq 'openfile') {
+    # Collect paths: pipe-separated in 'paths' (Windows filenames can't contain
+    # '|', so it's a safe separator), and/or one-per-line in a 'list' file.
+    $paths = @()
+    if ($params['paths']) { $paths += ($params['paths'] -split '\|') }
+    if ($params['list'] -and (Test-Path -LiteralPath $params['list'])) {
+        $paths += (Get-Content -LiteralPath $params['list'] | Where-Object { $_ -and $_.Trim() })
+    }
+    foreach ($p in $paths) {
+        $p = $p.Trim()
+        if (-not $p) { continue }
+        if (-not (Test-Path -LiteralPath $p)) { continue }
+        try { Invoke-Item -LiteralPath $p -ErrorAction Stop }
+        catch { Start-Process explorer.exe -ArgumentList "`"$p`"" }
+    }
+    exit 0
+}
+
+# --- focus action (default) ---
+$target = @{ title = $params['title']; session = $params['session'] }
 
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type @"
