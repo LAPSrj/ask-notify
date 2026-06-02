@@ -68,6 +68,12 @@ function run(raw) {
     message = rawMessage.replace(/\s+to use\s+\S+\s*$/i, '');
 
     const toolUse = readPendingToolUse(payload.transcript_path);
+
+    // When an AskUserQuestion prompt is waiting, Claude Code also emits a
+    // Notification event for it. The PreToolUse hook already toasted the
+    // question itself — skip this one so the user isn't notified twice.
+    if (toolUse && toolUse.name === 'AskUserQuestion') return;
+
     detail = summarizeToolUse(toolUse);
     title = project || 'Approval needed';
   }
