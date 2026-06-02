@@ -105,6 +105,39 @@ node open-file.js payload.json --force-open    # open directly, skip focus check
 node open-file.js payload.json --force-toast   # always toast, skip focus check
 ```
 
+### Enabling file delivery on local (non-remote) sessions
+
+Out of the box, Claude Code only enables the `SendUserFile` tool when the
+session has a remote connection (Remote Control connected, or running in a
+claude.ai cloud environment). On a plain local CLI session the tool isn't in
+Claude's tool list at all — so there's nothing for the hook to react to.
+
+You can unlock it locally by making the session *look* remote to the tool's
+enablement check. Add this to `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE": "local-wsl"
+  }
+}
+```
+
+The value can be any non-empty string. New sessions then expose the real
+`SendUserFile` tool, Claude uses it whenever a file is the deliverable, and
+the `open-file.js` hook opens or toasts it.
+
+**Caveats** (as of Claude Code 2.1.160):
+
+- This rides on an **undocumented internal gate** — a future Claude Code
+  update may change or remove it. The failure mode is benign: the tool simply
+  disappears from the tool list again; nothing else breaks.
+- Files sent through the tool are **also uploaded to your claude.ai account**
+  (the same upload that happens on real remote sessions).
+- The tool requires claude.ai (Pro/Max) login; it is not available on
+  API-key/Bedrock/Vertex auth.
+- Telemetry will tag your sessions with the environment type string you set.
+
 ## Prerequisites
 
 - Windows 10 or 11 — **BurntToast is Windows-only**, since it wraps the
