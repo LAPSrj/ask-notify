@@ -40,6 +40,14 @@ function run(raw) {
   if (payload.tool_name === 'AskUserQuestion') {
     // PreToolUse payload: Claude is about to show a question prompt. The
     // question text comes straight from tool_input — no transcript tail needed.
+    //
+    // Drop a per-session marker so the Notification event Claude Code emits a
+    // few seconds later for the same waiting question (notification_type
+    // "permission_prompt") doesn't fire a duplicate toast. The transcript
+    // can't be used to detect this: Claude Code buffers transcript writes
+    // while a tool is pending, so the question's tool_use isn't on disk yet.
+    writeQuestionMarker(payload.session_id);
+
     const questions = (payload.tool_input && payload.tool_input.questions) || [];
     message = questions.map((q) => q && q.question).filter(Boolean).join(' ');
     if (!message) return;
@@ -67,11 +75,18 @@ function run(raw) {
     // surfaces its raw message unchanged.
     message = rawMessage.replace(/\s+to use\s+\S+\s*$/i, '');
 
+    // While an AskUserQuestion prompt is waiting, Claude Code also emits a
+    // Notification event for it ("Claude needs your permission" /
+    // permission_prompt). The PreToolUse hook already toasted the question —
+    // suppress the duplicate. A question counts as still-pending when its
+    // marker is newer than the transcript's last write: the transcript only
+    // advances again once the question is answered or dismissed.
+    if (isQuestionPending(payload.session_id, payload.transcript_path)) return;
+
     const toolUse = readPendingToolUse(payload.transcript_path);
 
-    // When an AskUserQuestion prompt is waiting, Claude Code also emits a
-    // Notification event for it. The PreToolUse hook already toasted the
-    // question itself — skip this one so the user isn't notified twice.
+    // Same dedup via the transcript, in case a future Claude Code version
+    // flushes the pending tool_use to disk before notifying.
     if (toolUse && toolUse.name === 'AskUserQuestion') return;
 
     detail = summarizeToolUse(toolUse);
@@ -170,6 +185,38 @@ function psString(s) {
 function truncate(s, max) {
   s = String(s).replace(/\s+/g, ' ').trim();
   return s.length > max ? s.slice(0, max - 1) + '…' : s;
+}
+
+// --- pending-question marker ---------------------------------------------
+// Written by the PreToolUse/AskUserQuestion branch, checked by the
+// Notification branch. Namespaced per session so concurrent Claude Code
+// sessions don't suppress each other's notifications.
+
+function questionMarkerPath(sessionId) {
+  return path.join(require('os').tmpdir(), `asknotify-question-${sessionId || 'unknown'}`);
+}
+
+function writeQuestionMarker(sessionId) {
+  try { fs.writeFileSync(questionMarkerPath(sessionId), new Date().toISOString()); } catch { /* best effort */ }
+}
+
+function isQuestionPending(sessionId, transcriptPath) {
+  let markerStat;
+  try { markerStat = fs.statSync(questionMarkerPath(sessionId)); } catch { return false; }
+
+  // A canceled question in a session that never writes again shouldn't
+  // suppress notifications forever.
+  if (Date.now() - markerStat.mtimeMs > 24 * 60 * 60 * 1000) return false;
+
+  if (transcriptPath) {
+    try {
+      const transcriptStat = fs.statSync(transcriptPath);
+      // Still pending iff nothing was written to the transcript after the
+      // question appeared. Answering/dismissing flushes the transcript.
+      return markerStat.mtimeMs > transcriptStat.mtimeMs;
+    } catch { /* no transcript on disk yet — trust the marker */ }
+  }
+  return true;
 }
 
 // Write an OSC 0 escape to the controlling TTY to set the terminal's tab
