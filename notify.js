@@ -11,6 +11,12 @@ const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// Window after the PreToolUse marker within which the question's own
+// permission_prompt Notification is expected. Generous enough to cover a slow
+// hook→notification gap, short enough that a canceled question (whose
+// Notification never arrives) won't swallow a later, genuine prompt.
+const QUESTION_MARKER_TTL_MS = 30 * 1000;
+
 const cliArgs = process.argv.slice(2);
 const debug = cliArgs.includes('--debug');
 const payloadFile = cliArgs.find((a) => !a.startsWith('--'));
@@ -78,10 +84,11 @@ function run(raw) {
     // While an AskUserQuestion prompt is waiting, Claude Code also emits a
     // Notification event for it ("Claude needs your permission" /
     // permission_prompt). The PreToolUse hook already toasted the question —
-    // suppress the duplicate. A question counts as still-pending when its
-    // marker is newer than the transcript's last write: the transcript only
-    // advances again once the question is answered or dismissed.
-    if (isQuestionPending(payload.session_id, payload.transcript_path)) return;
+    // suppress the duplicate. The question's permission_prompt Notification
+    // always lands within seconds of the PreToolUse marker, and Claude is
+    // blocked the whole time so no genuine prompt can interleave — so a recent,
+    // unconsumed marker means "this is the question's own duplicate".
+    if (consumeQuestionMarker(payload.session_id)) return;
 
     const toolUse = readPendingToolUse(payload.transcript_path);
 
@@ -200,23 +207,17 @@ function writeQuestionMarker(sessionId) {
   try { fs.writeFileSync(questionMarkerPath(sessionId), new Date().toISOString()); } catch { /* best effort */ }
 }
 
-function isQuestionPending(sessionId, transcriptPath) {
+// Returns true if a fresh question marker exists for this session — meaning the
+// Notification we're handling is the duplicate for that question. Consumes the
+// marker (deletes it) so it only ever suppresses one notification.
+function consumeQuestionMarker(sessionId) {
+  const file = questionMarkerPath(sessionId);
   let markerStat;
-  try { markerStat = fs.statSync(questionMarkerPath(sessionId)); } catch { return false; }
+  try { markerStat = fs.statSync(file); } catch { return false; }
 
-  // A canceled question in a session that never writes again shouldn't
-  // suppress notifications forever.
-  if (Date.now() - markerStat.mtimeMs > 24 * 60 * 60 * 1000) return false;
-
-  if (transcriptPath) {
-    try {
-      const transcriptStat = fs.statSync(transcriptPath);
-      // Still pending iff nothing was written to the transcript after the
-      // question appeared. Answering/dismissing flushes the transcript.
-      return markerStat.mtimeMs > transcriptStat.mtimeMs;
-    } catch { /* no transcript on disk yet — trust the marker */ }
-  }
-  return true;
+  const fresh = Date.now() - markerStat.mtimeMs <= QUESTION_MARKER_TTL_MS;
+  try { fs.unlinkSync(file); } catch { /* best effort */ }
+  return fresh;
 }
 
 // Write an OSC 0 escape to the controlling TTY to set the terminal's tab

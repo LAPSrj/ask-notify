@@ -144,8 +144,14 @@ if ($mode -eq 'open') {
 
 if ($focused) {
     # User is looking at this session's terminal — open the files directly.
+    # Pause between launches: firing several files at a cold-starting UWP app
+    # (e.g. Photos) in a tight loop collapses the activations and only the first
+    # opens. A short gap lets each activation register.
+    $first = $true
     foreach ($p in $paths) {
         if (-not (Test-Path -LiteralPath $p)) { continue }
+        if (-not $first) { Start-Sleep -Milliseconds 600 }
+        $first = $false
         try { Invoke-Item -LiteralPath $p -ErrorAction Stop }
         catch { Start-Process explorer.exe -ArgumentList "\`"$p\`"" }
     }

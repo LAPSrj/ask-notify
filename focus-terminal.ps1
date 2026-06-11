@@ -29,10 +29,16 @@ if ($action -eq 'openfile') {
     if ($params['list'] -and (Test-Path -LiteralPath $params['list'])) {
         $paths += (Get-Content -LiteralPath $params['list'] | Where-Object { $_ -and $_.Trim() })
     }
+    # Pause between launches: firing several files at a cold-starting UWP app
+    # (e.g. Photos) in a tight loop collapses the activations and only the first
+    # opens. A short gap lets each activation register.
+    $first = $true
     foreach ($p in $paths) {
         $p = $p.Trim()
         if (-not $p) { continue }
         if (-not (Test-Path -LiteralPath $p)) { continue }
+        if (-not $first) { Start-Sleep -Milliseconds 600 }
+        $first = $false
         try { Invoke-Item -LiteralPath $p -ErrorAction Stop }
         catch { Start-Process explorer.exe -ArgumentList "`"$p`"" }
     }
